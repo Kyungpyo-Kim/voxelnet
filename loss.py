@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class VoxelNetLoss(nn.Module):
     def __init__(self, alpha, beta):
         super(VoxelNetLoss, self).__init__()
@@ -9,15 +10,17 @@ class VoxelNetLoss(nn.Module):
         self.alpha = alpha
         self.beta = beta
 
-    def forward(self, rm, psm, pos_equal_one, neg_equal_one, targets):
+    def forward(self, regression_map, probablitity_score_map, pos_equal_one, neg_equal_one, targets):
+        p_pos = F.sigmoid(probablitity_score_map.permute(0, 2, 3, 1))
+        regression_map = regression_map.permute(0, 2, 3, 1).contiguous()
+        regression_map = regression_map.view(regression_map.size(
+            0), regression_map.size(1), regression_map.size(2), -1, 7)
+        targets = targets.view(targets.size(
+            0), targets.size(1), targets.size(2), -1, 7)
+        pos_equal_one_for_reg = pos_equal_one.unsqueeze(
+            pos_equal_one.dim()).expand(-1, -1, -1, -1, 7)
 
-        p_pos = F.sigmoid(psm.permute(0,2,3,1))
-        rm = rm.permute(0,2,3,1).contiguous()
-        rm = rm.view(rm.size(0),rm.size(1),rm.size(2),-1,7)
-        targets = targets.view(targets.size(0),targets.size(1),targets.size(2),-1,7)
-        pos_equal_one_for_reg = pos_equal_one.unsqueeze(pos_equal_one.dim()).expand(-1,-1,-1,-1,7)
-
-        rm_pos = rm * pos_equal_one_for_reg
+        rm_pos = regression_map * pos_equal_one_for_reg
         targets_pos = targets * pos_equal_one_for_reg
 
         cls_pos_loss = -pos_equal_one * torch.log(p_pos + 1e-6)
