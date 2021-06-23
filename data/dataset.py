@@ -4,7 +4,8 @@ import glob
 from torch.utils.data import Dataset
 import numpy as np
 import cv2
-
+from utils import *
+from box_overlaps import bbox_overlaps
 
 class KittiDataset(Dataset):
     def __init__(self, data_dir, cfg, shuffle=False, aug=False,
@@ -73,24 +74,27 @@ class KittiDataset(Dataset):
         pointcloud = self.pointcloudFromFile(self.f_lidar[index])
         voxel_features, voxel_coords = self.voxelize(pointcloud)
         calib = self.calibFromFile(self.f_calib[index])
-        label = self.labelFromFile(self.f_label[index], calib['Tr_velo2cam'])
-
+        
         data = {}
         data["voxel_features"] = voxel_features
         data["voxel_coords"] = voxel_coords
-        data["pos_equal_one"] = None
-        data["neg_equal_one"] = None
-        data["target"] = None
         data["rgb"] = cv2.imread(self.f_rgb[index])
         data["pointcloud"] = pointcloud
         data["calib"] = calib
-        data["id"] = None
-        data["label"] = label
+        data["file_id"] = None
 
         if not self.is_testset:
-            data["label"] = None
+            label = self.labelFromFile(self.f_label[index], calib['Tr_velo2cam'])
+            pos_equal_one, neg_equal_one, targets = self.calculateTarget(label)
+            data["label"] = label
+            data["pos_equal_one"] = pos_equal_one
+            data["neg_equal_one"] = neg_equal_one
+            data["target"] = targets
         else:
             data["label"] = None
+            data["pos_equal_one"] = None
+            data["neg_equal_one"] = None
+            data["target"] = None
 
         return data
 
@@ -98,6 +102,9 @@ class KittiDataset(Dataset):
         return len(self.indices)
 
     def voxelize(self, pointcloud):
+        """
+        TODO Move to utils package
+        """
         # shuffling the points
         np.random.shuffle(pointcloud)
 
@@ -109,7 +116,6 @@ class KittiDataset(Dataset):
 
         voxel_coords, inv_ind, voxel_counts = np.unique(voxel_coords, axis=0,
                                                         return_inverse=True, return_counts=True)
-
         voxel_features = []
 
         for i in range(len(voxel_coords)):
@@ -227,6 +233,80 @@ class KittiDataset(Dataset):
         gt_boxes3d_corner = np.array(gt_boxes3d_corner).reshape(-1, 8, 3)
 
         return gt_boxes3d_corner
+
+    def calculateTarget(self, label):
+        # Input:
+        #   labels: (N,)
+        #   feature_map_shape: (w, l)
+        #   anchors: (w, l, 2, 7)
+        # Output:
+        #   pos_equal_one (w, l, 2)
+        #   neg_equal_one (w, l, 2)
+        #   targets (w, l, 14)
+        # attention: cal IoU on birdview
+        anchors_d = np.sqrt(self.anchors[:, 4] ** 2 + self.anchors[:, 5] ** 2)
+        pos_equal_one = np.zeros((*self.feature_map_shape, 2))
+        neg_equal_one = np.zeros((*self.feature_map_shape, 2))
+        targets = np.zeros((*self.feature_map_shape, 14))
+
+        gt_xyzhwlr = box3d_corner_to_center_batch(label)
+        anchors_corner = anchors_center_to_corner(self.anchors)
+        anchors_standup_2d = corner_to_standup_box2d_batch(anchors_corner)
+
+        # BOTTLENECK
+        gt_standup_2d = corner_to_standup_box2d_batch(label)
+
+        iou = bbox_overlaps(
+            np.ascontiguousarray(anchors_standup_2d).astype(np.float32),
+            np.ascontiguousarray(gt_standup_2d).astype(np.float32),
+        )
+
+        id_highest = np.argmax(iou.T, axis=1)  # the maximum anchor's ID
+        id_highest_gt = np.arange(iou.T.shape[0])
+        mask = iou.T[id_highest_gt, id_highest] > 0
+        id_highest, id_highest_gt = id_highest[mask], id_highest_gt[mask]
+        # find anchor iou > cfg.XXX_POS_IOU
+        id_pos, id_pos_gt = np.where(iou > self.pos_threshold)
+        # find anchor iou < cfg.XXX_NEG_IOU
+        id_neg = np.where(np.sum(iou < self.neg_threshold,
+                                 axis=1) == iou.shape[1])[0]
+
+        id_pos = np.concatenate([id_pos, id_highest])
+        id_pos_gt = np.concatenate([id_pos_gt, id_highest_gt])
+        # TODO: uniquify the array in a more scientific way
+        id_pos, index = np.unique(id_pos, return_index=True)
+        id_pos_gt = id_pos_gt[index]
+        id_neg.sort()
+        # cal the target and set the equal one
+        index_x, index_y, index_z = np.unravel_index(
+            id_pos, (*self.feature_map_shape, self.anchors_per_position))
+        pos_equal_one[index_x, index_y, index_z] = 1
+        # ATTENTION: index_z should be np.array
+
+        targets[index_x, index_y, np.array(index_z) * 7] = \
+            (gt_xyzhwlr[id_pos_gt, 0] - self.anchors[id_pos, 0]) / anchors_d[id_pos]
+        targets[index_x, index_y, np.array(index_z) * 7 + 1] = \
+            (gt_xyzhwlr[id_pos_gt, 1] - self.anchors[id_pos, 1]) / anchors_d[id_pos]
+        targets[index_x, index_y, np.array(index_z) * 7 + 2] = \
+            (gt_xyzhwlr[id_pos_gt, 2] - self.anchors[id_pos, 2]) / self.anchors[id_pos, 3]
+        targets[index_x, index_y, np.array(index_z) * 7 + 3] = np.log(
+            gt_xyzhwlr[id_pos_gt, 3] / self.anchors[id_pos, 3])
+        targets[index_x, index_y, np.array(index_z) * 7 + 4] = np.log(
+            gt_xyzhwlr[id_pos_gt, 4] / self.anchors[id_pos, 4])
+        targets[index_x, index_y, np.array(index_z) * 7 + 5] = np.log(
+            gt_xyzhwlr[id_pos_gt, 5] / self.anchors[id_pos, 5])
+        targets[index_x, index_y, np.array(index_z) * 7 + 6] = (
+                gt_xyzhwlr[id_pos_gt, 6] - self.anchors[id_pos, 6])
+        index_x, index_y, index_z = np.unravel_index(
+            id_neg, (*self.feature_map_shape, self.anchors_per_position))
+        neg_equal_one[index_x, index_y, index_z] = 1
+        # to avoid a box be pos/neg in the same time
+        index_x, index_y, index_z = np.unravel_index(
+            id_highest, (*self.feature_map_shape, self.anchors_per_position))
+        neg_equal_one[index_x, index_y, index_z] = 0
+
+        return pos_equal_one, neg_equal_one, targets
+
 
 
 if __name__ == "__main__":
