@@ -103,10 +103,10 @@ class KittiDataset(Dataset):
         # shuffling the points
         np.random.shuffle(pointcloud)
 
-        # order: W, H, D
+        # order: B, W, H, D
         voxel_coords = ((pointcloud[:, :3] - np.array([self.xrange[0], self.yrange[0], self.zrange[0]])) / (
                         self.vw, self.vh, self.vd)).astype(np.int32)
-        # convert to  (D, H, W)
+        # convert to  (B, D, H, W)
         voxel_coords = voxel_coords[:, [2, 1, 0]]
 
         voxel_coords, inv_ind, voxel_counts = np.unique(voxel_coords, axis=0,

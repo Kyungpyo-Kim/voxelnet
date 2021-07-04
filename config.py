@@ -25,7 +25,7 @@ class config:
     # voxel grid
     W = math.ceil((xrange[1] - xrange[0]) / vw) # 352
     H = math.ceil((yrange[1] - yrange[0]) / vh) # 400
-    D = math.ceil((zrange[1] - zrange[0]) / vd) # 4
+    D = math.ceil((zrange[1] - zrange[0]) / vd) # 10
 
     # iou threshold
     pos_threshold = 0.6

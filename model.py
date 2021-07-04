@@ -43,7 +43,12 @@ class Conv3d(nn.Module):
             self.bn = None
 
     def forward(self, x):
+        ## B C D H W
         print("conv3d")
+        print(x.shape)
+        print(x.device)
+        print(x.max())
+        print(x.min())
         x = self.conv(x)
         print("bn")
         if self.bn is not None:
@@ -91,7 +96,8 @@ class VFE(nn.Module):
         pointWiseFeature = self.fcn(x)
         # [VoxelNum, MaxPtsNum, units]
 
-        localAggrFeature = torch.max(pointWiseFeature, 1, keepdim=True)[0].repeat(1,cfg.T,1)
+        localAggrFeature = torch.max(pointWiseFeature, 1, keepdim=True)[
+            0].repeat(1, cfg.T, 1)
         # [VoxelNum, 1*MaxPtsNum, units]
 
         pointWiseConcat = torch.cat(
@@ -149,6 +155,7 @@ class CML(nn.Module):
 
     def forward(self, x):
         print("cml: 1")
+        print(x.shape)
         x = self.conv3d_1(x)
         print("cml: 2")
         x = self.conv3d_2(x)
@@ -209,24 +216,50 @@ class VoxelNet(nn.Module):
         self.rpn = RPN()
 
     def voxel_indexing(self, sparse_features, coords):
-        dim = sparse_features.shape[-1]
+        sparse_features = sparse_features.transpose(0, 1)
+        # C
+        channel = sparse_features.shape[0]
+        print("sparse_features: ", sparse_features.shape)
 
+        # C B D H W
         dense_feature = Variable(torch.zeros(
-            dim, cfg.N, cfg.D, cfg.H, cfg.W).cuda())
+            channel, cfg.N, cfg.D, cfg.H, cfg.W, dtype=torch.float64).cuda())
 
+        print("dense_feature: ", dense_feature.shape)
+        print("dense_feature: ", dense_feature[:, coords[:, 0], coords[:, 1],
+                      coords[:, 2], coords[:, 3]].shape)
+        print("sparse_features: ", sparse_features.shape)
+        
+        print("0:", coords[:, 0].min(), coords[:, 0].max())
+        print("1:", coords[:, 1].min(), coords[:, 1].max())
+        print("2:", coords[:, 2].min(), coords[:, 2].max())
+        print("3:", coords[:, 3].min(), coords[:, 3].max())
+        temp_feature = dense_feature[:, coords[:, 0], coords[:, 1],
+                      coords[:, 2], coords[:, 3]]
+
+        print("temp_feature: ", temp_feature.shape)
+        print("temp_feature: ", temp_feature.device)
+        print("temp_feature: ", temp_feature.type)
+        print("temp_feature: ", temp_feature.max())
+        print("temp_feature: ", temp_feature.min())
+        
         dense_feature[:, coords[:, 0], coords[:, 1],
-                      coords[:, 2], coords[:, 3]] = sparse_features.transpose(0, 1)
-
+                      coords[:, 2], coords[:, 3]] = sparse_features
+        # B C D H W
         return dense_feature.transpose(0, 1)
 
     def forward(self, voxel_features, voxel_coords):
 
         # feature learning network
         vwfs = self.svfe(voxel_features)
+        print("vwfs: ", vwfs.shape)
+        print("vwfs: ", vwfs.device)
+        print("vwfs: ", vwfs.max())
+        print("vwfs: ", vwfs.min())
+        
         vwfs = self.voxel_indexing(vwfs, voxel_coords)
 
         # convolutional middle network
-        print("vwfs: ", vwfs.shape)
         cml_out = self.cml(vwfs)
 
         # region proposal network
@@ -236,3 +269,117 @@ class VoxelNet(nn.Module):
             cml_out.view(cfg.N, -1, cfg.H, cfg.W))
 
         return probability_score_map, regression_map
+
+
+def weights_init(m):
+    if isinstance(m, nn.Conv2d):
+        nn.init.xavier_uniform_(m.weight.data)
+        m.bias.data.zero_()
+
+
+def detection_collate(batch):
+    voxel_features = []
+    voxel_coords = []
+    pos_equal_one = []
+    neg_equal_one = []
+    targets = []
+    images = []
+    calibs = []
+    ids = []
+
+    for i, sample in enumerate(batch):
+        voxel_features.append(sample['voxel_features'])
+        voxel_coords.append(
+            np.pad(sample['voxel_coords'], ((0, 0), (1, 0)), mode='constant',
+                   constant_values=i
+                   )
+        )
+        pos_equal_one.append(sample['pos_equal_one'])
+        neg_equal_one.append(sample['neg_equal_one'])
+        targets.append(sample['target'])
+        images.append(sample['rgb'])
+        calibs.append(sample['calib'])
+        ids.append(sample['file_id'])
+
+        return np.concatenate(voxel_features), np.concatenate(voxel_coords), \
+            np.array(pos_equal_one), np.array(neg_equal_one), \
+            np.array(targets), images, calibs, ids
+
+if __name__ == "_123_main__":
+    import numpy as np
+    net = Conv3d(128, 64, 3, s=(2, 1, 1), p=(1, 1, 1))
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    net.to(device)
+    net.train()
+    data = np.zeros((1, 128, 10, 400, 352))
+    data = Variable(torch.cuda.FloatTensor(data))
+    net(data)
+
+if __name__ == "__main__":
+    import pathlib
+    import os
+    import time
+    import numpy as np
+    from loss import VoxelNetLoss
+    from torch import optim
+    from torch.utils import data
+    from data.dataset import KittiDataset
+
+    print("main")
+    print(torch.__version__)
+    print(torch.version.cuda)
+
+    # model
+    net = VoxelNet()
+    print(net)
+
+    # set device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    net.to(device)
+
+    print("\n## Hardware type: {}\n".format(device.type))
+
+    # training mode
+    net.train()
+
+    # initialization
+    print('Initializing weights...')
+    net.apply(weights_init)
+
+    # define optimizer
+    optimizer = optim.SGD(net.parameters(), lr=0.01)
+
+    # loss function
+    loss = VoxelNetLoss(alpha=1.5, beta=1)
+
+    print(pathlib.Path(os.getcwd()).absolute()/"data/training")
+
+    # dataset
+    print(pathlib.Path(os.getcwd()).absolute()/"data/training")
+    dataset = KittiDataset(pathlib.Path(
+        os.getcwd()).absolute()/"data/training", cfg)
+    data_loader = data.DataLoader(dataset, batch_size=cfg.N, shuffle=True,
+                                  num_workers=2, collate_fn=detection_collate,
+                                  pin_memory=False)
+    # training process
+    batch_iterator = None
+    epoch_size = len(dataset) // cfg.N
+    print('Epoch size', epoch_size)
+
+    for iteration in range(1):
+        if (not batch_iterator) or (iteration % epoch_size == 0):
+            batch_iterator = iter(data_loader)
+
+        voxel_features, voxel_coords, pos_equal_one, neg_equal_one, targets, images, calibs, ids = next(
+            batch_iterator)
+
+        voxel_features = Variable(torch.cuda.FloatTensor(voxel_features))
+        # voxel_coords = Variable(torch.cuda.IntTensor(voxel_coords))
+        pos_equal_one = Variable(torch.cuda.FloatTensor(pos_equal_one))
+        neg_equal_one = Variable(torch.cuda.FloatTensor(neg_equal_one))
+        targets = Variable(torch.cuda.FloatTensor(targets))
+
+        optimizer.zero_grad()
+
+        t0 = time.time()
+        psm, rm = net(voxel_features, voxel_coords)
