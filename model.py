@@ -43,10 +43,12 @@ class Conv3d(nn.Module):
             self.bn = None
 
     def forward(self, x):
+        print("conv3d")
         x = self.conv(x)
+        print("bn")
         if self.bn is not None:
             x = self.bn(x)
-
+        print("end")
         return F.relu(x, inplace=True)
 
 # Fully Connected Network
@@ -89,11 +91,11 @@ class VFE(nn.Module):
         pointWiseFeature = self.fcn(x)
         # [VoxelNum, MaxPtsNum, units]
 
-        localAggrFeature = torch.max(pointWiseFeature, 1, keepdim=True)[0]
-        # [VoxelNum, 1, units]
+        localAggrFeature = torch.max(pointWiseFeature, 1, keepdim=True)[0].repeat(1,cfg.T,1)
+        # [VoxelNum, 1*MaxPtsNum, units]
 
         pointWiseConcat = torch.cat(
-            (pointWiseFeature, localAggrFeature), dim=2)
+            (pointWiseFeature, localAggrFeature), dim=-1)
         # [VoxelNum, MaxPtsNum, 2*units]
 
         # apply mask
@@ -140,14 +142,19 @@ class SVFE(nn.Module):
 class CML(nn.Module):
     def __init__(self):
         super(CML, self).__init__()
+        # 여기 디버깅 하기
         self.conv3d_1 = Conv3d(128, 64, 3, s=(2, 1, 1), p=(1, 1, 1))
         self.conv3d_2 = Conv3d(64, 64, 3, s=(1, 1, 1), p=(0, 1, 1))
         self.conv3d_3 = Conv3d(64, 64, 3, s=(2, 1, 1), p=(1, 1, 1))
 
     def forward(self, x):
+        print("cml: 1")
         x = self.conv3d_1(x)
+        print("cml: 2")
         x = self.conv3d_2(x)
+        print("cml: 3")
         x = self.conv3d_3(x)
+        print("end cml")
         return x
 
 # Region Proposal Network
@@ -208,7 +215,7 @@ class VoxelNet(nn.Module):
             dim, cfg.N, cfg.D, cfg.H, cfg.W).cuda())
 
         dense_feature[:, coords[:, 0], coords[:, 1],
-                      coords[:, 2], coords[:, 3]] = sparse_features
+                      coords[:, 2], coords[:, 3]] = sparse_features.transpose(0, 1)
 
         return dense_feature.transpose(0, 1)
 
@@ -219,6 +226,7 @@ class VoxelNet(nn.Module):
         vwfs = self.voxel_indexing(vwfs, voxel_coords)
 
         # convolutional middle network
+        print("vwfs: ", vwfs.shape)
         cml_out = self.cml(vwfs)
 
         # region proposal network

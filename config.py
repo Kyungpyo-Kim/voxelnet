@@ -7,7 +7,7 @@ class config:
     class_list = ['Car', 'Van']
 
     # batch size
-    N=2
+    N=1
 
     # maxiumum number of points per voxel
     T = 35

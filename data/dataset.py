@@ -66,11 +66,6 @@ class KittiDataset(Dataset):
 
     def __getitem__(self, index):
         # [voxel_features, voxel_coords, pos_equal_one, neg_equal_one, targets, images, calibs, ids]
-        print(self.f_rgb[index])
-        print(self.f_lidar[index])
-        print(self.f_label[index])
-        print(self.f_calib[index])
-
         pointcloud = self.pointcloudFromFile(self.f_lidar[index])
         voxel_features, voxel_coords = self.voxelize(pointcloud)
         calib = self.calibFromFile(self.f_calib[index])
@@ -81,7 +76,7 @@ class KittiDataset(Dataset):
         data["rgb"] = cv2.imread(self.f_rgb[index])
         data["pointcloud"] = pointcloud
         data["calib"] = calib
-        data["file_id"] = None
+        data["file_id"] = pathlib.Path(self.f_calib[index]).stem
 
         if not self.is_testset:
             label = self.labelFromFile(self.f_label[index], calib['Tr_velo2cam'])
