@@ -44,16 +44,9 @@ class Conv3d(nn.Module):
 
     def forward(self, x):
         ## B C D H W
-        print("conv3d")
-        print(x.shape)
-        print(x.device)
-        print(x.max())
-        print(x.min())
         x = self.conv(x)
-        print("bn")
         if self.bn is not None:
             x = self.bn(x)
-        print("end")
         return F.relu(x, inplace=True)
 
 # Fully Connected Network
@@ -154,14 +147,9 @@ class CML(nn.Module):
         self.conv3d_3 = Conv3d(64, 64, 3, s=(2, 1, 1), p=(1, 1, 1))
 
     def forward(self, x):
-        print("cml: 1")
-        print(x.shape)
         x = self.conv3d_1(x)
-        print("cml: 2")
         x = self.conv3d_2(x)
-        print("cml: 3")
         x = self.conv3d_3(x)
-        print("end cml")
         return x
 
 # Region Proposal Network
@@ -219,52 +207,26 @@ class VoxelNet(nn.Module):
         sparse_features = sparse_features.transpose(0, 1)
         # C
         channel = sparse_features.shape[0]
-        print("sparse_features: ", sparse_features.shape)
 
         # C B D H W
         dense_feature = Variable(torch.zeros(
-            channel, cfg.N, cfg.D, cfg.H, cfg.W, dtype=torch.float64).cuda())
-
-        print("dense_feature: ", dense_feature.shape)
-        print("dense_feature: ", dense_feature[:, coords[:, 0], coords[:, 1],
-                      coords[:, 2], coords[:, 3]].shape)
-        print("sparse_features: ", sparse_features.shape)
-        
-        print("0:", coords[:, 0].min(), coords[:, 0].max())
-        print("1:", coords[:, 1].min(), coords[:, 1].max())
-        print("2:", coords[:, 2].min(), coords[:, 2].max())
-        print("3:", coords[:, 3].min(), coords[:, 3].max())
-        temp_feature = dense_feature[:, coords[:, 0], coords[:, 1],
-                      coords[:, 2], coords[:, 3]]
-
-        print("temp_feature: ", temp_feature.shape)
-        print("temp_feature: ", temp_feature.device)
-        print("temp_feature: ", temp_feature.type)
-        print("temp_feature: ", temp_feature.max())
-        print("temp_feature: ", temp_feature.min())
-        
+            channel, cfg.N, cfg.D, cfg.H, cfg.W, dtype=torch.float32).cuda())
         dense_feature[:, coords[:, 0], coords[:, 1],
                       coords[:, 2], coords[:, 3]] = sparse_features
         # B C D H W
         return dense_feature.transpose(0, 1)
 
     def forward(self, voxel_features, voxel_coords):
-
         # feature learning network
         vwfs = self.svfe(voxel_features)
-        print("vwfs: ", vwfs.shape)
-        print("vwfs: ", vwfs.device)
-        print("vwfs: ", vwfs.max())
-        print("vwfs: ", vwfs.min())
-        
         vwfs = self.voxel_indexing(vwfs, voxel_coords)
 
         # convolutional middle network
         cml_out = self.cml(vwfs)
 
         # region proposal network
-
-        # merge the depth and feature dim into one, output probability score map and regression map
+        # merge the depth and feature dim into one, output probability score map
+        # and regression map
         probability_score_map, regression_map = self.rpn(
             cml_out.view(cfg.N, -1, cfg.H, cfg.W))
 
@@ -374,7 +336,6 @@ if __name__ == "__main__":
             batch_iterator)
 
         voxel_features = Variable(torch.cuda.FloatTensor(voxel_features))
-        # voxel_coords = Variable(torch.cuda.IntTensor(voxel_coords))
         pos_equal_one = Variable(torch.cuda.FloatTensor(pos_equal_one))
         neg_equal_one = Variable(torch.cuda.FloatTensor(neg_equal_one))
         targets = Variable(torch.cuda.FloatTensor(targets))

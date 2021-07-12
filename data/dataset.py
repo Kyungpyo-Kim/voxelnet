@@ -67,6 +67,13 @@ class KittiDataset(Dataset):
     def __getitem__(self, index):
         # [voxel_features, voxel_coords, pos_equal_one, neg_equal_one, targets, images, calibs, ids]
         pointcloud = self.pointcloudFromFile(self.f_lidar[index])
+        pointcloud = pointcloud[pointcloud[:,0] >= self.xrange[0],:]
+        pointcloud = pointcloud[pointcloud[:,0] <= self.xrange[1],:]
+        pointcloud = pointcloud[pointcloud[:,1] >= self.yrange[0],:]
+        pointcloud = pointcloud[pointcloud[:,1] <= self.yrange[1],:]
+        pointcloud = pointcloud[pointcloud[:,2] >= self.zrange[0],:]
+        pointcloud = pointcloud[pointcloud[:,2] <= self.zrange[1],:]
+        
         voxel_features, voxel_coords = self.voxelize(pointcloud)
         calib = self.calibFromFile(self.f_calib[index])
         

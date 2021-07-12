@@ -6,12 +6,12 @@ import torch.nn.functional as F
 class VoxelNetLoss(nn.Module):
     def __init__(self, alpha, beta):
         super(VoxelNetLoss, self).__init__()
-        self.smoothl1loss = nn.SmoothL1Loss(reduction=False)
+        self.smoothl1loss = nn.SmoothL1Loss()
         self.alpha = alpha
         self.beta = beta
 
     def forward(self, regression_map, probablitity_score_map, pos_equal_one, neg_equal_one, targets):
-        p_pos = F.sigmoid(probablitity_score_map.permute(0, 2, 3, 1))
+        p_pos = torch.sigmoid(probablitity_score_map.permute(0, 2, 3, 1))
         regression_map = regression_map.permute(0, 2, 3, 1).contiguous()
         regression_map = regression_map.view(regression_map.size(
             0), regression_map.size(1), regression_map.size(2), -1, 7)
