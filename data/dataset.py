@@ -7,6 +7,35 @@ import cv2
 from utils import *
 from box_overlaps import bbox_overlaps
 
+def detection_collate(batch):
+  voxel_features = []
+  voxel_coords = []
+  pos_equal_one = []
+  neg_equal_one = []
+  targets = []
+  images = []
+  pointclouds = []
+  calibs = []
+  ids = []
+
+  for i, sample in enumerate(batch):
+    voxel_features.append(sample['voxel_features'])
+    voxel_coords.append(
+        np.pad(sample['voxel_coords'], ((0,0), (1,0)), mode='constant',
+               constant_values=i
+        )
+    )
+    pos_equal_one.append(sample['pos_equal_one'])
+    neg_equal_one.append(sample['neg_equal_one'])
+    targets.append(sample['target'])
+    images.append(sample['rgb'])
+    pointclouds.append(sample['pointcloud'])
+    calibs.append(sample['calib'])
+    ids.append(sample['file_id'])
+  return np.concatenate(voxel_features), np.concatenate(voxel_coords), \
+          np.array(pos_equal_one), np.array(neg_equal_one), \
+          np.array(targets), images, pointclouds, calibs, ids
+
 class KittiDataset(Dataset):
     def __init__(self, data_dir, cfg, shuffle=False, aug=False,
                  is_testset=False) -> None:
@@ -68,11 +97,11 @@ class KittiDataset(Dataset):
         # [voxel_features, voxel_coords, pos_equal_one, neg_equal_one, targets, images, calibs, ids]
         pointcloud = self.pointcloudFromFile(self.f_lidar[index])
         pointcloud = pointcloud[pointcloud[:,0] >= self.xrange[0],:]
-        pointcloud = pointcloud[pointcloud[:,0] <= self.xrange[1],:]
+        pointcloud = pointcloud[pointcloud[:,0] < self.xrange[1],:]
         pointcloud = pointcloud[pointcloud[:,1] >= self.yrange[0],:]
-        pointcloud = pointcloud[pointcloud[:,1] <= self.yrange[1],:]
+        pointcloud = pointcloud[pointcloud[:,1] < self.yrange[1],:]
         pointcloud = pointcloud[pointcloud[:,2] >= self.zrange[0],:]
-        pointcloud = pointcloud[pointcloud[:,2] <= self.zrange[1],:]
+        pointcloud = pointcloud[pointcloud[:,2] < self.zrange[1],:]
         
         voxel_features, voxel_coords = self.voxelize(pointcloud)
         calib = self.calibFromFile(self.f_calib[index])
@@ -246,11 +275,17 @@ class KittiDataset(Dataset):
         #   neg_equal_one (w, l, 2)
         #   targets (w, l, 14)
         # attention: cal IoU on birdview
+        
+        
         anchors_d = np.sqrt(self.anchors[:, 4] ** 2 + self.anchors[:, 5] ** 2)
+        # anchors_d = np.sqrt(self.anchors[:,:,:,4].shape ** 2 + self.anchors[:,:,:,5] ** 2)
+        
+        
         pos_equal_one = np.zeros((*self.feature_map_shape, 2))
         neg_equal_one = np.zeros((*self.feature_map_shape, 2))
         targets = np.zeros((*self.feature_map_shape, 14))
 
+        # box corners (N, 8, 3) -> xyzhwlr (N, 7)
         gt_xyzhwlr = box3d_corner_to_center_batch(label)
         anchors_corner = anchors_center_to_corner(self.anchors)
         anchors_standup_2d = corner_to_standup_box2d_batch(anchors_corner)

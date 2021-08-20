@@ -11,6 +11,8 @@ from data.dataset import KittiDataset
 import pathlib, os
 import numpy as np
 
+PATH = "./model"
+
 def weights_init(m):
     if isinstance(m, nn.Conv2d):
         nn.init.xavier_uniform_(m.weight.data)
@@ -91,11 +93,11 @@ for iteration in range(10000):
   optimizer.zero_grad()
 
   t0 = time.time()
-  psm, rm = net(voxel_features, voxel_coords)
+  probablitity_score_map, regression_map = net(voxel_features, voxel_coords)
 
   # calculate loss
-  conf_loss, reg_loss = loss(rm, psm, pos_equal_one, neg_equal_one, targets)
-  loss_sum = conf_loss + reg_loss
+  conf_loss, regression_loss = loss(regression_map, probablitity_score_map, pos_equal_one, neg_equal_one, targets)
+  loss_sum = conf_loss + regression_loss
   # backward
   loss_sum.backward()
   optimizer.step()
@@ -104,6 +106,9 @@ for iteration in range(10000):
   print('Timer: %.4f sec.' % (t1 - t0))
   # print(loss_sum)
   # print(conf_loss)
-  # print(reg_loss)
-  print('iter ' + repr(iteration) + ' || Loss: %.4f || Conf Loss: %.4f || Loc Loss: %.4f' % \
-        (loss_sum.item(), conf_loss.item(), reg_loss.item()))
+  print(regression_loss)
+  print('iter ' + repr(iteration) + ' || Loss: %.4f || Conf Loss: %.4f || Regression Loss: %.4f' % \
+        (loss_sum.item(), conf_loss.item(), regression_loss.item()))
+
+torch.save(net, PATH)
+

@@ -4,3 +4,5 @@ data/validation/*
 *.so
 build/*
 *.zip
+checkpoint/*
+*.pickle

@@ -9,7 +9,8 @@ from config import config as cfg
 
 class Conv2d(nn.Module):
 
-    def __init__(self, in_channels, out_channels, k, s, p, activation=True, batch_norm=True):
+    def __init__(self, in_channels, out_channels, k, s, p, activation=True, 
+                 batch_norm=True):
         super(Conv2d, self).__init__()
         self.conv = nn.Conv2d(in_channels, out_channels,
                               kernel_size=k, stride=s, padding=p)
@@ -29,8 +30,6 @@ class Conv2d(nn.Module):
             return x
 
 # conv3d + bn + relu
-
-
 class Conv3d(nn.Module):
 
     def __init__(self, in_channels, out_channels, k, s, p, batch_norm=True):
@@ -50,8 +49,6 @@ class Conv3d(nn.Module):
         return F.relu(x, inplace=True)
 
 # Fully Connected Network
-
-
 class FCN(nn.Module):
 
     def __init__(self, cin, cout):
@@ -72,8 +69,6 @@ class FCN(nn.Module):
         return x.view(kk, t, -1)
 
 # Voxel Feature Encoding layer
-
-
 class VFE(nn.Module):
 
     def __init__(self, cin, cout):
@@ -89,12 +84,14 @@ class VFE(nn.Module):
         pointWiseFeature = self.fcn(x)
         # [VoxelNum, MaxPtsNum, units]
 
-        localAggrFeature = torch.max(pointWiseFeature, 1, keepdim=True)[
-            0].repeat(1, cfg.T, 1)
+        # localAggrFeature = torch.max(pointWiseFeature, 1, keepdim=True)[
+        #     0].repeat(1, cfg.T, 1)
+        localAggrFeature = torch.max(pointWiseFeature,1)[0].unsqueeze(1).repeat(1,cfg.T,1)
         # [VoxelNum, 1*MaxPtsNum, units]
 
-        pointWiseConcat = torch.cat(
-            (pointWiseFeature, localAggrFeature), dim=-1)
+        # pointWiseConcat = torch.cat(
+        #     (pointWiseFeature, localAggrFeature), dim=-1)
+        pointWiseConcat = torch.cat((pointWiseFeature,localAggrFeature),dim=2)
         # [VoxelNum, MaxPtsNum, 2*units]
 
         # apply mask
@@ -104,8 +101,6 @@ class VFE(nn.Module):
         return pointWiseConcat
 
 # Stacked Voxel Feature Encoding
-
-
 class SVFE(nn.Module):
 
     def __init__(self):
@@ -141,7 +136,6 @@ class SVFE(nn.Module):
 class CML(nn.Module):
     def __init__(self):
         super(CML, self).__init__()
-        # 여기 디버깅 하기
         self.conv3d_1 = Conv3d(128, 64, 3, s=(2, 1, 1), p=(1, 1, 1))
         self.conv3d_2 = Conv3d(64, 64, 3, s=(1, 1, 1), p=(0, 1, 1))
         self.conv3d_3 = Conv3d(64, 64, 3, s=(2, 1, 1), p=(1, 1, 1))
@@ -204,15 +198,14 @@ class VoxelNet(nn.Module):
         self.rpn = RPN()
 
     def voxel_indexing(self, sparse_features, coords):
-        sparse_features = sparse_features.transpose(0, 1)
         # C
-        channel = sparse_features.shape[0]
-
+        channel = sparse_features.shape[-1]
+        
         # C B D H W
         dense_feature = Variable(torch.zeros(
             channel, cfg.N, cfg.D, cfg.H, cfg.W, dtype=torch.float32).cuda())
         dense_feature[:, coords[:, 0], coords[:, 1],
-                      coords[:, 2], coords[:, 3]] = sparse_features
+                      coords[:, 2], coords[:, 3]] = sparse_features.transpose(0,1)
         # B C D H W
         return dense_feature.transpose(0, 1)
 
