@@ -6,3 +6,5 @@ build/*
 *.zip
 checkpoint/*
 *.pickle
+*.vscode*
+*/.ipynb_checkpoints/*
