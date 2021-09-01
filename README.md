@@ -6,6 +6,13 @@
 ## Dataset
 * KITTI
 
+## Dependencies
+* Numba
+* Pytorch
+* Numpy
+* Plotly
+* Matplotlib
+
 ## Installation
 1. Clone this repository
 2. Compile the Cython module
