@@ -1,7 +1,7 @@
 training:
-  batch_size: 4
   nms_threshold: 0.1
   score_threshold: 0.96
+  batch_size: 4
   pos_threshold: 0.6
   neg_threshold: 0.45
   class_list: ['Car']

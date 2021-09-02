@@ -84,6 +84,7 @@ class KittiDataset(Dataset):
 
         self.data_path = pathlib.Path(data_path)
 
+        self.batch_size = cfg['training']['batch_size']
         self.pos_threshold = cfg['training']['pos_threshold']
         self.neg_threshold = cfg['training']['neg_threshold']
         self.class_list = cfg['training']['class_list']
@@ -185,6 +186,9 @@ class KittiDataset(Dataset):
             data["target"] = None
 
         return data
+
+    def __len__(self):
+        return len(self.indices)
 
     def genAnchors(self):
         """
